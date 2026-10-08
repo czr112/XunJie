@@ -754,3 +754,7 @@ git diff --check
 - 草稿 PR 用于 B/C 和负责人审阅，关联 #2，不自动关闭 #2/#1。受保护文件的基线汇总仍交获授权维护者；不提交原工作区旧草案。A0-R01～12、A0-D01～12 和实际会审记录仍待收敛，A0 未通过、G0 未冻结。
 - 发布路径：当前 GitHub 账号 czr112 对上游仓库只有读取权，直接推送失败（403）；该次创建 PR 也因远程分支不存在失败。已创建 [个人 fork](https://github.com/czr112/XunJie)，使用 fork 分支向原仓库提交草稿 PR，保持原 origin 和项目基线不变。首次 fork 命令的参数组合不受本机 gh 支持，修正参数后创建成功；这些是发布操作失败，不计作业务验证失败或通过。
 - 实际交付：[草稿 PR #5](https://github.com/paher-din/XunJie/pull/5) 已创建并核验为 OPEN/Draft，目标 main，来源 czr112:codex/a0-contract-review；文件范围为本文、README 和只读检查脚本。GitHub 曾将说明中的否定关闭措辞识别为关闭关联，已改为明确保持 Issue 开放并核验 closingIssuesReferences 为空，#2 仍 OPEN。原工作区旧改动保持原状。
+
+### 20.4 上游权限恢复与分支同步
+
+2026-10-09 追加核验：czr112 已取得 paher-din/XunJie 的 push 权限；git push -u origin codex/a0-contract-review 成功，上游同名分支已建立并设置为本地跟踪分支。第 20.3 节的 403 和 fork 路径为当时事实，保留历史记录。继续使用草稿 PR #5（来源仍为个人 fork），后续当前任务提交同步到上游和该 fork 分支，不重复建立 PR；同一提案的权限恢复不表示 A0 会审通过、基线写入获授权或 Issue 可以关闭。

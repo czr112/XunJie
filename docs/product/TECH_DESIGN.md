@@ -1,6 +1,7 @@
 # TECH_DESIGN：独立 Web 教学应用
 
-版本：0.2 · 初稿依据：2026-10-04 · 本次修订：2026-10-06（Asia/Shanghai）  
+版本：0.2 · 初稿依据：2026-10-04 · 技术修订：2026-10-06 · 团队文档整理：2026-10-08（Asia/Shanghai）
+
 状态：面向 MVP 的推荐技术基线；本次只编写设计，未创建应用、数据库或部署环境。  
 上游：[PRD](PRD.md) → [MVP_SPEC](MVP_SPEC.md)
 
@@ -58,7 +59,7 @@ flowchart TB
 
 后台代码可在 apps/teaching/ 下按 server、runner、contracts 组织，server 再按上表业务责任拆分。前端保留团队交付的工程结构与构建方式，接入时确认仓库位置，不预建或要求迁移到指定 web 目录。contracts 表达接口字段、状态和校验语义，不要求前端与后台共用同一种语言或校验库。
 
-该目录本次不创建。现有根 package.json 继续是 IDE 实验入口；新应用有独立启动与测试命令，不静默改写原入口。
+该目录本次不创建。本仓库尚无正式应用的启动与测试命令；后续按团队实际 UI 工程和后台结构设置，不将旧 IDE 实验的启动命令作为产品入口。
 
 ## 3. 技术栈与已有能力复用
 
@@ -80,17 +81,17 @@ flowchart TB
 
 ### 3.2 复用清单
 
-| 现有材料/模块 | 可迁用部分 | 必须改造/重新验收 |
+| 本仓库中的复用参考 | 可迁用部分 | 必须改造/重新验收 |
 | --- | --- | --- |
-| [web/app.mjs](../../plugins/student-ide/web/app.mjs)、[Monaco API](../../plugins/student-ide/web/monaco-api.mjs) | 编辑、选区、版本与草稿恢复的可复用逻辑 | 按成员 UI 交付适配对象引用、认证资源路由与多标签冲突；不重做其页面 |
-| [journal.mjs](../../plugins/student-ide/src/journal.mjs)、[shared.mjs](../../plugins/student-ide/shared.mjs) | 文本变化、确认/去重、哈希与回放语义及相关测试 | 改为课程/尝试作用域；状态/历史不能按全局路径混用 |
-| [runner.mjs](../../plugins/student-ide/src/runner.mjs)、[语言契约](../../experiments/student-ide/docs/LANGUAGE_CONTRACT.md) | 源码快照、编译/运行阶段、环境指纹与失败分类 | 用隔离执行器替代宿主进程；命令白名单和结果来源重做验收 |
-| [Round 0 记录模块](../../experiments/core-loop/src/round0.mjs) | 活动版本、TeacherReview、revision 与原始/推断分离的业务经验 | 不直接当作多人数据库或认证服务；不导入模拟身份/能力记录 |
-| [既有验收](../../experiments/student-ide/docs/VERIFICATION.md) | 回归场景和原能力边界 | 新 Web 集成独立验证，历史实验通过数不计入新应用通过数 |
+| [编辑与对象版本](../reference/ENGINEERING_HANDOFF.md#编辑与对象版本) | 编辑、选区、版本与草稿恢复的语义 | 按成员 UI 交付适配对象引用、认证资源路由与多标签冲突；不重做其页面 |
+| [记录确认与回放](../reference/ENGINEERING_HANDOFF.md#记录确认与回放) | 文本变化、确认/去重、哈希与回放语义 | 实现课程/尝试作用域；状态/历史不能按全局路径混用 |
+| [运行与语言环境](../reference/ENGINEERING_HANDOFF.md#运行与语言环境) | 源码快照、编译/运行阶段、环境指纹与失败分类 | 用隔离执行器替代宿主进程；命令白名单和结果来源重做验收 |
+| [教师纠正与历史版本](../reference/ENGINEERING_HANDOFF.md#教师纠正与历史版本) | 活动版本、TeacherReview、revision 与原始/推断分离的业务经验 | 实现真实身份与事务；不导入模拟身份/能力记录 |
+| [历史试验对开发的影响](../reference/ENGINEERING_HANDOFF.md#历史试验对开发的影响) | 有来源的回归风险与原能力边界 | 新 Web 集成独立验证，历史实验通过数不计入新应用通过数 |
 
-优先迁用小范围纯逻辑、契约和对应检查，保留来源；不把整个插件服务嵌入新应用。本次产品文档工作不调整原插件、安装路径、lab 或证据。现有学习阶段仍遵守四个只读 MCP 工具边界；新应用的设计不授权当前 Agent 操作原学生会话。
+上述契约已迁入本仓库，团队可直接依据正式接口实施。旧插件代码尚未作为本仓库依赖交付，不能假设原模块可直接导入；若后续决定迁用小范围纯逻辑，再评估源码、依赖与对应检查并保留来源，不把整个插件服务嵌入新应用。学生操作与模型权限按本文件和 AGENTS.md 的正式边界实现。
 
-2026-10-06 状态同步：student-ide 已为 0.6.0，[编辑时多语言诊断](../../experiments/student-ide/docs/DIAGNOSTICS_PLAN.md)已有隔离验收记录。具体语言与能力边界以实验契约为准；是否迁用以及如何呈现，结合成员的 Web UI 决定，不直接把原实验界面作为产品 UI。
+2026-10-06 的历史 student-ide 0.6.0 已有编辑时诊断的隔离验收记录；团队所需的[诊断契约与限制](../reference/ENGINEERING_HANDOFF.md#编辑时诊断)已收录。正式首版语言仍待冻结，是否迁用具体实现及如何呈现结合成员的 Web UI 决定，不把历史多语言覆盖作为首版必须实现的范围。
 
 ### 3.3 与团队 Web UI 对接
 
@@ -393,6 +394,8 @@ SQLite 官方已记录 WAL-reset 问题及修复版本；冻结驱动时应实�
 
 ## 13. 设计依据
 
-本地依据为[技术研究](../../TECHNICAL_RESEARCH_2026-10-01.md)第 3–9 节、[复核记录](../../TECHNICAL_RESEARCH_REVIEW_2026-10-01.md)、[工作空间规范](../../AGENTS.md)与第 3.2 节列出的既有实现。只做与复用边界有关的静态阅读，没有启动学生服务、读取当前学生代码或运行学生答案。
+影响本设计的研究结论见[产品研究依据](../reference/PRODUCT_RESEARCH.md)，可沿用的能力、版本契约与历史限制见[工程衔接说明](../reference/ENGINEERING_HANDOFF.md)，协作与操作边界见[工作空间规范](../../AGENTS.md)。必要内容均可在本仓库独立阅读，不依赖个人目录、旧本地服务或未交付源码。
 
 沿用 2026-10-04 定点查阅的一手技术资料：[Node 发布与支持](https://nodejs.org/en/about/previous-releases)、[Fastify](https://fastify.dev/docs/latest/Reference/Validation-and-Serialization/)、[better-sqlite3](https://github.com/WiseLibs/better-sqlite3)、[SQLite 使用边界](https://www.sqlite.org/whentouse.html)、[WAL](https://www.sqlite.org/wal.html)、[AI SDK](https://ai-sdk.dev/docs/agents/loop-control)、[Docker 资源限制](https://docs.docker.com/engine/containers/resource_constraints/)与[安全说明](https://docs.docker.com/engine/security/)。它们用于核对推荐机制与限制，未完成新栈安装、性能测试、安全认证或教学有效性验证。2026-10-06 修订只同步 Web UI 分工及已有实验状态，未重新开展技术选型调研。
+
+2026-10-08 的整理只更新团队可读的来源与复用说明，并修正原工作空间的启动入口描述；没有变更推荐技术架构、业务接口、数据模型或验收要求，也没有运行旧实验。

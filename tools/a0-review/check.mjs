@@ -20,13 +20,14 @@ export function checkRepository(root = repositoryRoot, overrides = {}) {
       if (/^https?:\/\//i.test(target)) continue;
       internalLinks += 1;
       try {
-        const [name, fragment] = target.split('#');
+        const [encodedName, fragment] = target.split('#');
+        const name = decodeURIComponent(encodedName);
         if (/^(?:[a-z]:[\\/]|[\\/]|file:)/i.test(name)) {
           errors.push(`${file}: absolute document link ${target}`);
           continue;
         }
         const destination = name
-          ? resolve(root, dirname(file), decodeURIComponent(name))
+          ? resolve(root, dirname(file), name)
           : resolve(root, file);
         const destinationPath = normalizePath(relative(root, destination));
         if (destinationPath === '..' || destinationPath.startsWith('../') || isAbsolute(destinationPath)) {

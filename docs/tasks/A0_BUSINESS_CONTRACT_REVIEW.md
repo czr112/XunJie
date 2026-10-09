@@ -159,7 +159,7 @@ CMD-15 的生命周期操作允许状态为 start=ready、pause=active、resume=
 | CMD-13 POST /api/attempts/:id/help | S/本人尝试 | ready/active 且分配 active、政策允许 | expectedAttemptRevision、ObjectRef/问题；核验确认对象并读取当前状态/epoch | ready 同事务激活后接纳，返回 jobId；B+C+A |
 | CMD-14 POST /api/attempts/:id/runs | S/本人尝试 | ready/active 且分配 active | expectedAttemptRevision、snapshotId、批准 profile/输入、run 或 course_check；限额与检查政策 | 固定 runId/jobId；ready 同事务激活；C |
 | CMD-15 POST /api/attempts/:id/controls | S/本人尝试 | start:ready；pause:active；resume:paused；resume_revision:reviewed+有效许可；采集/提醒设值:ready/active/paused/submitted/reviewed；按本文第 4.2/4.3/8.3 节检查分配与用途 | expectedAttemptRevision；start/pause/resume/resume_revision 或采集/提醒设值；重开带有效 grant 引用 | 新尝试/控制版本；三个开关独立，不默默恢复；C |
-| CMD-16 POST /api/jobs/:id/cancel | 有权发起该 Job 的本人 | 排队/进行中；已终结则返回既有状态 | jobId、所属命令/范围；不授予教师任意代学生发起操作权 | 取消请求/既有结果；不抹去事实；C，B 配合 |
+| CMD-16 POST /api/jobs/:id/cancel | 有权发起该 Job 的本人 | 排队/进行中；已终结保留状态，仍停止其关联未展示教学动作 | jobId、所属命令/范围；不授予教师任意代学生发起操作权 | 取消请求/既有结果及教学投递停止结果同事务保存；不抹去事实；C，B 配合 |
 | CMD-17 POST /api/attempts/:id/submissions | S/本人尝试 | ready/active 且分配 active | expectedAttemptRevision、确认 snapshotId、课程要求的说明/检查引用 | 固定 Submission、submitted；不把 stdout/smoke 当通过；C |
 | CMD-18 POST /api/actions/:id/receipts | 已认证的目标 S 客户端 | 事实发生过即可追加，迟到事实仍保留 | actionId/contentHash/receiptKind/clientReceiptId，核验目标/内容版本 | 去重回执；迟到/过时冲突标注，不回滚状态；C |
 | CMD-19 POST /api/attempts/:id/disputes | S/本人尝试及同课程本人目标 | 已创建尝试 | targetRef={claimId,claimRevision} 或 {feedbackId,feedbackRevision}、理由；影响有效主张时 expectedStateRevision | 异议及所影响新状态；历史目标不覆写不同当前结论；A+C |
@@ -192,7 +192,7 @@ K(scope) 为可信 userId + 稳定 CMD 编号 + scope + Idempotency-Key。D 为�
 | CMD-13 | attemptId；expectedAttemptRevision/ObjectRef/问题/意图 | 暂停/限定帮助/未确认或旧对象/预算时限 | 先同步或改引用，查询 Job；取消或人工求助 |
 | CMD-14 | attemptId；expectedAttemptRevision/snapshotId/profile/模式/输入 | 暂停/坏快照配置/运行限额/执行器不可用 | 查询原 runId；outcome_unknown 不盲目重跑 |
 | CMD-15 | attemptId；expectedAttemptRevision/具体控制/值/grant 引用 | 旧版本/分配覆盖/无效或已消费许可 | 重读控制和最新许可；开关分别处理 |
-| CMD-16 | jobId；jobId/取消请求 | 非获准发起者/控制面不可用 | 查询 Job 和取消状态；终结结果保留 |
+| CMD-16 | jobId；jobId/取消请求 | 非获准发起者/事务存储失败；外部取消失败不撤销已提交停止 | 查询 Job 与关联动作停止状态；同键重放不重复事件，终结/已展示事实保留，通知失败重试通知 |
 | CMD-17 | attemptId；expectedAttemptRevision/snapshotId/说明/检查引用 | 暂停/旧状态/坏或他人检查/必需说明缺失 | 修正引用，查询原 Submission；不重复提交或要求必须答对 |
 | CMD-18 | actionId；contentHash/receiptKind/clientReceiptId | 非目标本人/不存在的内容版本/伪造种类 | 按原事实重试；迟到追加标冲突，不补造中间回执 |
 | CMD-19 | attemptId；targetRef/reason/expectedStateRevision（影响投影时） | 他人或不存在目标版本/状态 CAS | 重读本人目标；历史异议不覆盖新判断 |
@@ -279,7 +279,7 @@ CMD-01 使用认证限流/会话规则，不缓存密码或登录响应作为业
 | C resolveCommandReceipt / finishCommand | tx、可信账号/命令/目标/key/请求摘要；最终结果 | 已有同请求结果或新命令槽；同键冲突；结果/审计/事件与业务同提交 |
 | C enqueueJob / appendEvent | tx、已获准 scope、版本/epoch、kind/输入引用/截止 | jobId/event 引用；不在事务里调用供应商或执行器 |
 | C invalidateDecisionContext | tx、courseId/studentId/相关 attempt 范围、原因 | 原子增加相关 epoch、标旧动作/分析 stale、追加事件；不改原始事实 |
-| C cancelByPurpose | tx、获准 attempt 范围、reminder/passive_analysis 等明确用途、原因 | 针对类别取消；支持不增加教学 epoch 的独立开关 |
+| C cancelByPurpose | tx、获准 jobId 或 attempt 范围、help/reminder/passive_analysis 等明确用途、原因 | 单 Job 停止或类别取消；持久停止标记与关联未展示 Action 失效同事务保存，终结 Job 状态保留；不影响范围外作业 |
 | C transitionAttempt / grantReopen | tx、已授权操作、expectedAttemptRevision、提交/许可引用 | 新阶段/许可版本；不接受任意目标 state 写入或自动学生继续 |
 | C readEvidence / readSubmission | 可信用途/课程/本人、确切 ObjectRef/Submission 引用；事务核验时可用 tx | 当前可用的原始引用/快照/结果/帮助/覆盖；拒绝或缺口明确 |
 | C readRuntimeReadiness | 固定 runtimeProfileVersion 与验证配置 | 可信就绪状态、镜像/规则版本、验证证据和检查时间；不能以请求体 ready 代替 |
@@ -323,6 +323,7 @@ A 在一个短事务核验原 Job 的持久状态仍允许本次结果接纳（�
 | 教师纠正、确认争议处理改变有效依据 | 同课程同学生相关教学上下文；新状态 revision、相关 Attempt epoch | 未展示教学动作、依赖旧状态的分析/反馈草稿；保守整体失效，不建通用依赖图 | 原始作品/运行/已显示帮助保留；无关学生/课程不受影响 |
 | 学生对当前有效主张提出异议 | 异议+新 contested 投影+相关 epoch | 依赖该依据的待投递动作/分析 | 保留原主张与异议；仅历史/反馈正文异议不伪造新能力主张 |
 | 新主动求助取代旧求助 | 同 Attempt 新 epoch/新 help Job | 旧有效帮助/待投递内容；不再同时有两个有效帮助 Job | 已显示帮助保留；学生文件/运行不变 |
+| CMD-16 停止指定教学 Job | 当前获准 jobId/用途；持久停止标记、Action 失效、事件/回执同事务；不增加通用 epoch | 未完成生成及该 Job 关联未展示动作；已完成生成也停止后续投递/重连补发 | 终结 Job/生成结果/已展示事实保留；不影响其他 Job、新主动求助或普通运行事实 |
 | 分配暂停/恢复、个人尝试暂停/恢复 | 分配/尝试控制版本及受影响 epoch | 暂停时相关教学动作/分析、待运行；正在执行取消/归档按 C 处理；恢复不重放旧动作 | 保存已有草稿/读旧事实；个人 paused 不被教师恢复覆盖 |
 | 进入/退出限定帮助检查 | 可信检查阶段、政策约束与新 epoch | 不符合检查政策的待投递辅导/提醒 | 只限制系统内帮助；不声称阻止外部帮助；既有运行/检查事实可追溯 |
 | 关闭主动提醒 | 同 Attempt 控制版本，单独检查提醒许可；不增加通用教学 epoch | 仅待投递/生成的 reminder | 主动求助和被动分析依其各自规则继续；不重写历史帮助 |
@@ -332,6 +333,8 @@ A 在一个短事务核验原 Job 的持久状态仍允许本次结果接纳（�
 文件内容变化使用 snapshot/documentVersion 检查，不把每次编辑都当作能力状态或 epoch 更新。课程要求/政策变更通过新 ActivityVersion；如果必须停止旧活动先暂停分配，不能原地修改旧尝试规则。
 
 投递/候选写入时在真实事务中重查原 Job/Action 的持久状态、相关版本、epoch、分配/个人阶段、政策与用途开关；不能仅在模型调用前检查。cancelled/stale/failed 状态不能因关闭后的开关恢复、通知失败或外部请求无法取消而回到可接纳/可投递；已接纳/已投递结果仅按原记录去重，不重复生效。expectedAttemptRevision 用于接纳命令的 CAS，最终输出守卫按用途检查相关状态/引用，不机械要求无关控制的整项 revision 不变（见第 16.4 节与 A0-R10）。已生成但未获准内容不能先出现在 SSE/Job 结果中。网络通知与教师纠正存在展示竞态，按 TECH_DESIGN 第 7.3 节由客户端再核验，并保留真实迟到事实，不宣称已发送内容可被“收回”。
+
+CMD-16 对 help/reminder 等产生 TeachingAction 的 Job 使用持久停止标记，具体字段与返回格式待 C0 核对。已终结 Job 保留原状态和生成结果引用，停止标记与其关联未展示 Action 的 cancelled 状态、事件、命令回执同一事务提交；不能因 Job completed 就跳过停止。该标记还阻止迟到回调新建或投递该 Job 的教学动作，动作保存与最终投递须在事务内重查它。外部取消/通知失败不解除停止，重启、重连、同键重放也不重新投递；新主动求助使用另一 jobId，不受旧标记影响。客户端在本地停止后不展示该 Job 的迟到内容；其他页面或断线重连先同步停止状态。已展示帮助与迟到真实回执仍追加保留并标注停止竞态，不将缺展示回执认定为学生从未看见，也不承诺收回已看到内容。
 
 ## 9. 后台选型与目录责任评审稿
 
@@ -409,7 +412,7 @@ D-03 处置流程提案：核验申请人/课程/目标和权限 → 列相关�
 | A0-T09 | sync 同 seq 同内容与同 seq 异内容，断线恢复 | 去重/冲突正确，落盘才 ACK，双端草稿保留，不假装已同步 | AC-03/11/12；C+A |
 | A0-T10 | ready GET 与首次合法帮助/运行/同步/提交 | GET 不激活；学生命令按会审后的阶段规则原子接纳；无强制开工表单 | AC-03/05；A+B+C |
 | A0-T11 | 分配 paused、个人 paused、采集/提醒开关组合 | 前两者优先，已有草稿保存允许；独立开关不彼此恢复；submitted 不解锁 | AC-06/11；A+C |
-| A0-T12 | 相同控制目标再次设值、关闭提醒但主动帮助运行中 | 不造多余 epoch/空窗；只取消 reminder，主动帮助仍可完成 | AC-06/NFR-04；A+B+C |
+| A0-T12 | 相同控制目标再次设值、关闭提醒但主动帮助运行中；完成生成后 CMD-16 停止，随后迟到动作/重连 | 不造多余 epoch/空窗；关闭提醒不取消主动帮助；指定 Job 停止与未展示动作失效原子保存，重放不重复副作用，已展示事实保留 | AC-05/06/NFR-04；A+B+C |
 | A0-T13 | 采集关闭时帮助/运行/提交；关闭→恢复后旧被动分析迟到 | 功能数据保存；无新增过程/被动候选或反馈草稿；原 Job 已取消/过期仍拒绝；空窗不补，只接纳恢复后合法新 Job | AC-06/07/11；A+B+C |
 | A0-T14 | 对当前 claim 提异议及对历史 claim/feedback 异议 | 当前有效依据 contested 并失效旧依赖；历史不覆盖新主张/反馈 | AC-07/08；A+B+C |
 | A0-T15 | 两个旧教师表单、候选与教师纠正两种提交顺序 | CAS 仅一个新头；旧候选拒绝生效，旧教师表单重读；无丢失更新 | AC-08/NFR-04；A+B+C |
@@ -435,7 +438,7 @@ D-03 处置流程提案：核验申请人/课程/目标和权限 → 列相关�
 | A0-R04 | paused 保存“现有草稿”与 sync 新建/回收操作边界 | C0 明确 file create/recycle 与同步事务，A 核对权限 | 暂停期间文件管理行为 |
 | A0-R05 | M-01 量规试评、TECH 8.1 教师样例运行尚无公共入口 | A 的 CMD-24 仅试评；C0 提样例执行 scope/快照/配置/错误 | 教师样例真实执行接口 |
 | A0-R06 | M-07 正式反馈现有路由不足；CMD-23 提 kind/确切 feedbackId/提交引用/CAS | A/C/B 核对草稿/正式保存与 reviewed 同事务；负责人确认 | 正式反馈与阶段接入 |
-| A0-R07 | C Receipt/Job/Event、幂等摘要、sync seq、回执保留/重启的实际返回值 | C0 给输入输出/并发与恢复样例；A/B 核对 | A1 最终幂等、A3/B1/C2 真实联调 |
+| A0-R07 | C Receipt/Job/Event、幂等摘要、sync seq、回执保留/重启的实际返回值；终结 Job 与教学动作停止分离 | C0 给 Job/Action 关联、持久停止标记及同事务输入输出/并发与恢复样例；A/B 核对 | A1 最终幂等、A3/B1/C2 真实联调 |
 | A0-R08 | 纠正/异议/上下文变化与 C epoch、按用途取消同一短事务 | C0/B0 提失效范围/失败类别/候选与消息守卫；A 汇总 | A4/C3/B3 真实纠正联调 |
 | A0-R09 | 候选保存分工：B 输出，C 原始分析，A 接纳/投影/正式决定；撤回约束跨新候选 | B0 给完整信封/反证/帮助/未知样例，C0 给原始引用/持久化接缝 | 有效学习状态/分析最终冻结 |
 | A0-R10 | 关闭采集/提醒不使主动帮助整体失效；被动分析迟到不得写新头 | B/C 核对 purpose/collection 守卫与取消分类；负责人确认细化 | 三种控制的消息/候选联调 |
@@ -470,7 +473,7 @@ D-03 处置流程提案：核验申请人/课程/目标和权限 → 列相关�
 
 ## 14. 交付、验证事实与下一步
 
-以下为 2026-10-08 的历史记录，发布授权及当前交付状态以第 20 节为准。
+以下为 2026-10-08 的历史记录，发布授权及当前交付状态以第 21 节为准。
 
 - 已完成：远程四个 Issue 的主责/正文核对，定位 A0 #2；最新基线与 Agent 写入规则核对；七项交付要求的评审稿、24 命令/19 组读取/授权与状态矩阵、D-03 12 参数、12 差异及 20 计划用例。
 - 写入位置：本文件与 README 导航。没有正式应用源码、DDL、依赖或环境变更。
@@ -491,7 +494,7 @@ A0 #2 需要将教师/学生/维护者的权限、状态、版本、幂等与事
 
 ## 15. 2026-10-09：先推进不依赖外部确认的准备工作
 
-以下记录用户暂停提交期间的准备范围；最新提交 PR 指令及复审见第 20 节。
+以下记录项目负责人暂停提交期间的准备范围；最新修复与合入授权见第 21 节。
 
 本次继续依据 PRD/MVP/TECH 的现有范围完善 A0；只修改本文，不提交、推送或创建 PR。共享契约的提案仍待会审，未据其创建应用代码。AGENTS 要求“需要改变产品结果或共享契约的部分等待确认”，同时要求“无关的已授权工作继续推进”；待定项按依赖分别处理，不将 B/C 业务代码、模型、语言和 UI 全部当作 A1 的统一前置。
 
@@ -627,9 +630,15 @@ P1 的健康状态不能把不存在的数据库、模型或执行器写成 read
 
 自检发现的待会审细化：attemptRevision 同时覆盖生命周期和独立控制，**投递守卫若机械要求整项 attemptRevision 永远不变，会使关闭提醒间接取消主动帮助**，违反 MVP M-04 的独立控制。提案为 expectedAttemptRevision 用于接纳新学生命令的 CAS，已接纳输出按用途检查当前阶段、相关许可/政策、epoch 和对象/状态引用；与当前用途无关的控制 revision 改变不等同于该输出过期。B/C 需选择具体可检验实现并确保 A0-E13；此条并入 A0-R10，未据此修改共享基线或写代码。
 
+### 16.5 完成生成后停止的并发预期
+
+前提：S1 的 help Job 已 completed，关联 Action 已生成但尚未展示。S1 发送 CMD-16；事务保留 completed/生成内容，保存该 Job 的停止标记，将关联未展示 Action 标 cancelled，并一次提交事件和成功回执。之后迟到生成回调、待投递事件或重连补取都不能创建/展示该 Job 的新帮助；客户端本地停止立即阻止其迟到展示。
+
+同键重试返回原停止结果，不增加事件或通用 epoch；事务任一步失败整体回滚并报告未提交；提交后外部取消/通知失败只重试通知，不重做停止。若展示先发生，或其真实 displayed 回执迟到，保留内容和事实并标停止竞态，不回滚新状态或恢复投递。学生再次主动求助使用新 Job，正常接纳；普通运行结果不因该教学停止被改写。这是 A0-T12 的补充预期，真实数据库与浏览器验证未执行，须由 B/C 核对。
+
 ## 17. 本次独立核对与进展
 
-以下为暂停提交期间的验证事实，最新提交授权见第 20 节。
+以下为暂停提交期间的验证事实，最新修复与合入授权见第 21 节。
 
 - 日期：2026-10-09。继续了无需其他成员先交代码的工作：拆分待定项的实际阻塞范围、A1-P1～P3 首批范围提案、15 个合成接口/竞态样例和 4 段可解析 JSON。
 - 自检结果：补充 A0-R10 的 attemptRevision/独立控制守卫歧义；未将任何差异写成已解决或已批准。B/C 会审、G0 相关决定、基线汇总仍未完成。
@@ -680,8 +689,8 @@ AC-10/NFR-03 的执行隔离仍归 C1 主责；AC-13/14 真人流程不在这 20
 | HANDOFF-04 | A0-R04 | C | paused 现有草稿保存与新建/回收分别如何拒绝/允许，file 生命周期/seq/ACK 的事务范围 |
 | HANDOFF-05 | A0-R05 | C | 教师样例执行的专用 scope、快照/配置、验证资产投影与错误；不借学生 Attempt 冒充学生运行 |
 | HANDOFF-06 | A0-R06 | B/C | feedback 草稿与正式保存分开，明确 feedbackId、kind、最新提交与 reviewed 同事务；B 草稿引用格式 |
-| HANDOFF-07 | A0-R07 | C | Receipt/Job/Event 的真实输入/返回、同键并发、恢复/回执保留窗口、sync seq 与 HTTP 幂等组合 |
-| HANDOFF-08 | A0-R08 | B/C | 当前 tx 的失效函数、epoch/用途类别/失败返回，提交后通知与外部取消；教师先/候选先样例 |
+| HANDOFF-07 | A0-R07 | C | Receipt/Job/Event 的真实输入/返回、同键并发、恢复/回执保留窗口、sync seq 与 HTTP 幂等组合；completed Job 关联未展示 Action 的停止标记/事务/重连返回 |
+| HANDOFF-08 | A0-R08 | B/C | 当前 tx 的失效函数、epoch/用途类别/失败返回，提交后通知与外部取消；教师先/候选先及完成生成后停止样例，迟到动作不复活 |
 | HANDOFF-09 | A0-R09 | B/C | 候选信封与原始引用/反证/帮助/未知，接纳/拒绝保存，撤回依据如何避免换 ID 后复活 |
 | HANDOFF-10 | A0-R10 | B/C | 提醒/采集独立取消，已接纳帮助的相关版本守卫；确保 A0-E13 不因无关 attemptRevision 增加而误过期 |
 | HANDOFF-11 | A0-R11 | B/C，负责人决定 | 核对第 9 节目录责任与短事务入口，列具体公共依赖需求/组合限制；不代负责人冻结版本或实施 |
@@ -704,7 +713,7 @@ AC-10/NFR-03 的执行隔离仍归 C1 主责；AC-13/14 真人流程不在这 20
 
 ## 19. 可重复运行的检查与本次交付记录
 
-以下记录检查工具交付时的验证事实，最新提交授权和复审见第 20 节。
+以下记录检查工具交付时的验证事实，最新修复与合入授权见第 21 节。
 
 本次可写范围增加仅用于 A0 评审的 tools/a0-review/check.mjs、本文及 README 验证入口；产品/规划/规范/参考文件仍只读。工具使用 Node 标准库，不安装依赖、选定正式后端版本或实现共享业务接口。
 
@@ -727,7 +736,7 @@ git diff --check
 
 ## 20. 2026-10-09：提交前复审与授权记录
 
-用户最新指令为“那你在仔细审查一下a0，确认无误后可以提交pr”。本次已获得复审后提交、推送及创建文档 PR 的授权，取代第 14/15/17/19 节所记历史暂停提交/等待发布授权状态；该授权不包含合并 PR、关闭 Issue、冻结共享契约、修改受保护基线或实施应用。
+项目负责人于 2026-10-09 指示“那你在仔细审查一下a0，确认无误后可以提交pr”。当时授权范围为复审后提交、推送及创建文档 PR，取代第 14/15/17/19 节所记历史暂停提交/等待发布授权状态；当时不包含合并 PR、关闭 Issue、冻结共享契约、修改受保护基线或实施应用。后续修复与合入授权及当前状态见第 21 节。
 
 固定比较基线为 8a0e3325eaa456e903bd31532ce2a5eef8d8736a。按 code-review 工作流分别审查仓库规范和 Issue #2/产品规格，范围含相对基线的 README、本文和只读检查工具完整候选改动。
 
@@ -758,3 +767,17 @@ git diff --check
 ### 20.4 上游权限恢复与分支同步
 
 2026-10-09 追加核验：czr112 已取得 paher-din/XunJie 的 push 权限；git push -u origin codex/a0-contract-review 成功，上游同名分支已建立并设置为本地跟踪分支。第 20.3 节的 403 和 fork 路径为当时事实，保留历史记录。继续使用草稿 PR #5（来源仍为个人 fork），后续当前任务提交同步到上游和该 fork 分支，不重复建立 PR；同一提案的权限恢复不表示 A0 会审通过、基线写入获授权或 Issue 可以关闭。
+
+## 21. 2026-10-09：PR #5 审查修复与合入范围
+
+项目负责人授权修复本次审查问题、复验后合并既有 PR #5。本次仍只交付设计评审稿和只读文档检查工具；合并不表示 A0/G0 会审通过、共享契约冻结、产品验收或应用实施获准。产品、规划、参考及 AGENTS 基线保持只读，待授权维护者汇总。
+
+修复依据为 MVP M-04/AC-05、TECH 第 7.3 节，以及 AGENTS 的仓库路径和明确项目角色记录要求。可写范围为本文、README、tools/a0-review/check.mjs 及新增的 tools/a0-review/check.test.mjs；没有应用调用方、数据库或配置变更。
+
+修复方案：CMD-16 停止生成完成但未展示的关联教学动作，保留终结 Job 与已展示事实；停止标记、Action 失效、事件与命令回执同事务保存，提交后通知，最终守卫拒绝迟到输出。路径先解码再检查绝对路径和仓库边界，增加纯内存回归测试；授权记录改用明确项目角色。B/C 仍需核对 Job/Action 关联、停止标记、事务返回和客户端展示竞态，不由本次合并代替签认。
+
+修复交付：CMD-16、第 8.1/8.3 节、A0-T12、第 16.5 节与 HANDOFF-07/08 已同步停止语义和并发预期；授权记录使用明确项目角色。检查器在解码后执行路径边界检查；[路径回归测试](../../tools/a0-review/check.test.mjs) 与 README 验证入口已交付，不安装依赖或调用业务服务。
+
+实际验证：新增测试修复前为 5/7，通过修复后为 7/7；原失败项为编码的仓库内绝对路径和编码 file URL。node --check tools/a0-review/check.mjs、node --check tools/a0-review/check.test.mjs、node --test tools/a0-review/check.test.mjs、node tools/a0-review/check.mjs 和 git diff --check 均通过。文档检查为 10 份 Markdown、72 处内部链接，原命令/读取/编号/JSON/映射/路由结构检查通过；这些结果不计入业务验收。
+
+当前状态：本次三个审查问题已修正并完成上述静态验证，准备按项目负责人授权更新及合并 PR #5。其余 A0-R01～12、D-03 参数、B/C 签认与基线汇总仍待处理；业务、数据库、模型、执行隔离、浏览器和真人验收未执行，A0 未通过、G0 未冻结。第 20 节的独立自查零问题结论仅为当时记录，不能替代本次修复或三方会审。
